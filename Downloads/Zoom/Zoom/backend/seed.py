@@ -21,7 +21,12 @@ def seed_database():
     print("ZoomConnect — Database Seeder")
     print("=" * 50)
 
-    # Reset schema
+    # Reset schema safeguard
+    confirm = input("WARNING: This will drop ALL tables and DESTROY all existing data. Type 'YES' to proceed: ")
+    if confirm != "YES":
+        print("Seeding aborted.")
+        return
+
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     print("✓ Tables created")

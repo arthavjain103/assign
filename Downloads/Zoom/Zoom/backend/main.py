@@ -225,15 +225,15 @@ def join_meeting(
 @app.post("/api/meetings/{meeting_id}/leave")
 def leave_meeting(
     meeting_id: str,
-    display_name: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_default_user)
 ):
-    """Record participant exit from a meeting"""
+    """Record participant exit from a meeting using validated caller"""
     meeting = get_meeting(meeting_id, db)
     
     participant = db.query(models.Participant).filter(
         models.Participant.meeting_id == meeting.id,
-        models.Participant.display_name == display_name,
+        models.Participant.user_id == current_user.id,
         models.Participant.left_at == None
     ).first()
     
@@ -249,10 +249,14 @@ def host_mute_participant(
     meeting_id: str,
     participant_name: str,
     payload: schemas.ParticipantUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_default_user)
 ):
-    """Host control: Mute/Unmute participant"""
+    """Host control: Mute/Unmute participant. Validates host access."""
     meeting = get_meeting(meeting_id, db)
+    
+    if meeting.host_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Unauthorized: Only the host can manage participant audio/video.")
     
     participant = db.query(models.Participant).filter(
         models.Participant.meeting_id == meeting.id,
@@ -279,10 +283,14 @@ def host_mute_participant(
 def host_remove_participant(
     meeting_id: str,
     participant_name: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_default_user)
 ):
-    """Host control: Remove a participant from the meeting"""
+    """Host control: Remove a participant from the meeting. Validates host access."""
     meeting = get_meeting(meeting_id, db)
+    
+    if meeting.host_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Unauthorized: Only the host can remove participants.")
     
     participant = db.query(models.Participant).filter(
         models.Participant.meeting_id == meeting.id,
@@ -301,9 +309,16 @@ def host_remove_participant(
     return {"status": "removed"}
 
 @app.post("/api/meetings/{meeting_id}/end")
-def end_meeting(meeting_id: str, db: Session = Depends(get_db)):
-    """End meeting (Set is_active = False) and kick all participants"""
+def end_meeting(
+    meeting_id: str, 
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_default_user)
+):
+    """End meeting entirely. Validates host access to prevent hijack closures."""
     meeting = get_meeting(meeting_id, db)
+    
+    if meeting.host_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Unauthorized: Only the host can arbitrarily end the meeting.")
     
     meeting.is_active = False
     
