@@ -1,0 +1,151 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* ===== ZOOM DESIGN TOKENS ===== */
+:root {
+  /* Zoom exact colors */
+  --zoom-blue: #0E72ED;
+  --zoom-blue-hover: #0b64d4;
+  --zoom-blue-light: #E8F1FD;
+  --zoom-blue-light-hover: #d6e7fc;
+  --zoom-orange: #F26D21;
+  --zoom-orange-hover: #e05e14;
+  --zoom-orange-light: #FEF0E8;
+  --zoom-green: #0EA54B;
+  --zoom-green-light: #E6F5EC;
+  --zoom-red: #D73838;
+  --zoom-red-hover: #c03232;
+
+  /* Dashboard light mode */
+  --bg-page: #F5F5F5;
+  --bg-white: #FFFFFF;
+  --bg-card: #FFFFFF;
+  --bg-hover: #F0F0F0;
+  --bg-sidebar: #FFFFFF;
+  --bg-topbar: #FFFFFF;
+
+  /* Text */
+  --text-primary: #1A1A1A;
+  --text-secondary: #747487;
+  --text-muted: #9A9AB0;
+  --text-link: #0E72ED;
+
+  /* Borders */
+  --border-color: #E5E5E5;
+  --border-hover: #C8C8C8;
+
+  /* Sidebar */
+  --sidebar-width: 240px;
+  --sidebar-icon-size: 20px;
+  --sidebar-active-bg: #E8F1FD;
+  --sidebar-active-color: #0E72ED;
+
+  /* Topbar */
+  --topbar-height: 56px;
+
+  /* Meeting room (dark) */
+  --room-bg: #111827;
+  --room-card: #1F2937;
+  --room-border: #374151;
+  --room-text: #FFFFFF;
+  --room-text-secondary: #9CA3AF;
+  --room-bar: #1A2332;
+  --room-btn-hover: #374151;
+  --room-active-blue: #2563EB;
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Radius */
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-2xl: 20px;
+  --r-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.04);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06);
+  --shadow-hover: 0 8px 20px rgba(0,0,0,0.12);
+  --shadow-modal: 0 20px 60px rgba(0,0,0,0.15), 0 8px 24px rgba(0,0,0,0.08);
+
+  /* Transitions */
+  --t-fast: 0.12s ease;
+  --t-base: 0.18s ease;
+  --t-slow: 0.28s ease;
+}
+
+/* ===== RESET ===== */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background-color: var(--bg-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  outline: none;
+}
+
+input, select, textarea {
+  font-family: inherit;
+  outline: none;
+}
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #C8C8C8; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #A0A0A0; }
+
+/* ===== ANIMATIONS ===== */
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.97) translateY(4px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes floatUp {
+  0%   { opacity: 1; transform: translateY(0)   scale(1); }
+  100% { opacity: 0; transform: translateY(-80px) scale(1.4); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes recordBlink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
