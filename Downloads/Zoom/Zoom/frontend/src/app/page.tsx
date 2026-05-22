@@ -18,6 +18,7 @@ import {
   RefreshCw, Star, ChevronRight, Mic
 } from "lucide-react";
 import "./dashboard.css";
+import { TeamChatView, ContactsView, WhiteboardsView, GenericGridContent } from "./components/TabViews";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 interface User {
@@ -353,9 +354,9 @@ export default function Dashboard() {
         </header>
 
         {/* PAGE CONTENT */}
-        <main className="page-content">
+        <main className="page-content" style={{ padding: activeNav === "home" ? undefined : 0, overflow: activeNav === "home" ? undefined : "hidden" }}>
 
-          {activeNav === "home" ? (
+          {activeNav === "home" && (
             <>
               {/* ── ACTION CARDS ── */}
               <section>
@@ -587,19 +588,17 @@ export default function Dashboard() {
                 </div>
               </section>
             </>
-          ) : (
-            <div className="empty-state" style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: "100%", width: "100%" }}>
-              <div style={{ background: "#F1F5F9", borderRadius: "50%", padding: 24, marginBottom: 24 }}>
-                <AlertCircle size={48} color="var(--zoom-blue)" style={{ opacity: 0.8 }} />
-              </div>
-              <h2 style={{ fontSize: 24, fontWeight: 600, color: "var(--text)", marginBottom: 12 }}>
-                {NAV_ITEMS.find(n => n.id === activeNav)?.label || "Settings"}
-              </h2>
-              <p style={{ color: "var(--text-muted)", fontSize: 14, maxWidth: 400, textAlign: "center", lineHeight: 1.6 }}>
-                The <strong style={{ color: "var(--text)" }}>{NAV_ITEMS.find(n => n.id === activeNav)?.label || "Settings"}</strong> feature leverages advanced modules currently restricted to the fully-authenticated Enterprise Web Portal. Check back soon for the lightweight web extension updates!
-              </p>
-            </div>
           )}
+
+          {activeNav === "chat" && <TeamChatView />}
+          {activeNav === "contacts" && <ContactsView />}
+          {activeNav === "whiteboards" && <WhiteboardsView />}
+          {activeNav === "notes" && <GenericGridContent title="Notes" icon={FileText} desc="Document your meeting notes seamlessly." />}
+          {activeNav === "clips" && <GenericGridContent title="Clips" icon={Film} desc="Short form asynchronous team video messages." />}
+          {activeNav === "apps" && <GenericGridContent title="Apps" icon={Grid} desc="Integrate essential applications directly into Zoom." />}
+          {activeNav === "meetings" && <GenericGridContent title="Meetings" icon={Video} desc="View and manage all your scheduled events." />}
+          {activeNav === "settings" && <GenericGridContent title="Settings" icon={Settings} desc="Configure your ZoomConnect preferences." />}
+
 
         </main>
       </div>
