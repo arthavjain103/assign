@@ -355,235 +355,251 @@ export default function Dashboard() {
         {/* PAGE CONTENT */}
         <main className="page-content">
 
-          {/* ── ACTION CARDS ── */}
-          <section>
-            <div className="action-grid">
-              {/* New Meeting */}
-              <button className="action-card orange" onClick={handleNewMeeting} aria-label="New Meeting">
-                <div className="action-card-icon-area">
-                  <div className="action-card-icon-circle white">
-                    <VideoIcon size={24} />
-                  </div>
-                </div>
-                <div className="action-card-info">
-                  <div className="action-card-title">New Meeting</div>
-                  <div className="action-card-desc">Start an instant meeting</div>
-                </div>
-              </button>
+          {activeNav === "home" ? (
+            <>
+              {/* ── ACTION CARDS ── */}
+              <section>
+                <div className="action-grid">
+                  {/* New Meeting */}
+                  <button className="action-card orange" onClick={handleNewMeeting} aria-label="New Meeting">
+                    <div className="action-card-icon-area">
+                      <div className="action-card-icon-circle white">
+                        <VideoIcon size={24} />
+                      </div>
+                    </div>
+                    <div className="action-card-info">
+                      <div className="action-card-title">New Meeting</div>
+                      <div className="action-card-desc">Start an instant meeting</div>
+                    </div>
+                  </button>
 
-              {/* Join */}
-              <button
-                className="action-card blue"
-                onClick={() => setShowJoin(true)}
-                aria-label="Join Meeting"
-              >
-                <div className="action-card-icon-area">
-                  <div className="action-card-icon-circle white">
-                    <PlusSquare size={24} />
-                  </div>
-                </div>
-                <div className="action-card-info">
-                  <div className="action-card-title">Join</div>
-                  <div className="action-card-desc">Join a meeting via ID or link</div>
-                </div>
-              </button>
+                  {/* Join */}
+                  <button
+                    className="action-card blue"
+                    onClick={() => setShowJoin(true)}
+                    aria-label="Join Meeting"
+                  >
+                    <div className="action-card-icon-area">
+                      <div className="action-card-icon-circle white">
+                        <PlusSquare size={24} />
+                      </div>
+                    </div>
+                    <div className="action-card-info">
+                      <div className="action-card-title">Join</div>
+                      <div className="action-card-desc">Join a meeting via ID or link</div>
+                    </div>
+                  </button>
 
-              {/* Schedule */}
-              <button
-                className="action-card blue"
-                onClick={() => setShowSchedule(true)}
-                aria-label="Schedule Meeting"
-              >
-                <div className="action-card-icon-area">
-                  <div className="action-card-icon-circle white">
-                    <Calendar size={24} />
-                  </div>
-                </div>
-                <div className="action-card-info">
-                  <div className="action-card-title">Schedule</div>
-                  <div className="action-card-desc">Plan a future meeting</div>
-                </div>
-              </button>
+                  {/* Schedule */}
+                  <button
+                    className="action-card blue"
+                    onClick={() => setShowSchedule(true)}
+                    aria-label="Schedule Meeting"
+                  >
+                    <div className="action-card-icon-area">
+                      <div className="action-card-icon-circle white">
+                        <Calendar size={24} />
+                      </div>
+                    </div>
+                    <div className="action-card-info">
+                      <div className="action-card-title">Schedule</div>
+                      <div className="action-card-desc">Plan a future meeting</div>
+                    </div>
+                  </button>
 
-              {/* Share Screen */}
-              <button
-                className="action-card blue"
-                onClick={() => setToast("Share Screen: Start a meeting then use the Share button inside.")}
-                aria-label="Share Screen"
-              >
-                <div className="action-card-icon-area">
-                  <div className="action-card-icon-circle white">
-                    <Monitor size={24} />
-                  </div>
-                </div>
-                <div className="action-card-info">
-                  <div className="action-card-title">Share Screen</div>
-                  <div className="action-card-desc">Share without video call</div>
-                </div>
-              </button>
-            </div>
-          </section>
-
-          {/* ── CONTENT GRID ── */}
-          <div className="content-grid">
-
-            {/* UPCOMING MEETINGS */}
-            <section>
-              <div className="section-header">
-                <h2 className="section-title">Upcoming</h2>
-                <button className="section-link" onClick={() => setShowSchedule(true)}>+ Schedule</button>
-              </div>
-              <div className="meetings-card">
-                <div className="meetings-card-header">
-                  <span className="meetings-card-title">Upcoming Meetings</span>
-                  <button className="btn-icon-sm tooltip-btn" data-tip="Refresh" onClick={fetchAll}>
-                    <RefreshCw size={14} />
+                  {/* Share Screen */}
+                  <button
+                    className="action-card blue"
+                    onClick={() => setToast("Share Screen: Start a meeting then use the Share button inside.")}
+                    aria-label="Share Screen"
+                  >
+                    <div className="action-card-icon-area">
+                      <div className="action-card-icon-circle white">
+                        <Monitor size={24} />
+                      </div>
+                    </div>
+                    <div className="action-card-info">
+                      <div className="action-card-title">Share Screen</div>
+                      <div className="action-card-desc">Share without video call</div>
+                    </div>
                   </button>
                 </div>
-                <div className="meetings-list">
-                  {loading ? (
-                    <div className="loading-row">
-                      <div className="spinner" />
-                      Loading meetings…
-                    </div>
-                  ) : upcomingMeetings.length === 0 ? (
-                    <div className="empty-state">
-                      <Calendar size={32} strokeWidth={1} style={{ opacity: 0.25 }} />
-                      <div className="empty-state-text">No upcoming meetings</div>
-                      <div className="empty-state-sub">
-                        <button className="section-link" onClick={() => setShowSchedule(true)}>Schedule a meeting</button>
-                      </div>
-                    </div>
-                  ) : (
-                    upcomingMeetings.map(m => (
-                      <div key={m.id} className="meeting-row">
-                        <div className="meeting-row-time-col">
-                          <span className="meeting-row-time">
-                            {m.start_time ? fmtTime(m.start_time).replace(/(AM|PM)/, "") : "–"}
-                          </span>
-                          <span className="meeting-row-ampm">
-                            {m.start_time ? (new Date(m.start_time).getHours() >= 12 ? "PM" : "AM") : ""}
-                          </span>
-                        </div>
-                        <div className="meeting-row-divider" />
-                        <div className="meeting-row-info">
-                          <div className="meeting-row-title">{m.title}</div>
-                          <div className="meeting-row-meta">
-                            <Clock size={11} />
-                            {m.start_time ? fmtDate(m.start_time) : "—"}
-                            {m.duration_minutes ? ` · ${fmtDuration(m.duration_minutes)}` : ""}
-                          </div>
-                          <div className="meeting-row-id">{m.meeting_id}</div>
-                        </div>
-                        <div className="meeting-row-actions">
-                          <button
-                            className="btn-icon-sm tooltip-btn"
-                            data-tip="Copy invite link"
-                            onClick={() => copyToClipboard(m.invite_link, "Invite link copied!")}
-                          >
-                            <Link size={13} />
-                          </button>
-                          <button
-                            className="btn-start"
-                            onClick={() => router.push(`/room/${m.meeting_id}?name=${encodeURIComponent(currentUser?.username || "Host")}`)}
-                          >
-                            Start
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </section>
+              </section>
 
-            {/* RECENT MEETINGS */}
-            <section>
-              <div className="section-header">
-                <h2 className="section-title">Recent</h2>
+              {/* ── CONTENT GRID ── */}
+              <div className="content-grid">
+
+                {/* UPCOMING MEETINGS */}
+                <section>
+                  <div className="section-header">
+                    <h2 className="section-title">Upcoming</h2>
+                    <button className="section-link" onClick={() => setShowSchedule(true)}>+ Schedule</button>
+                  </div>
+                  <div className="meetings-card">
+                    <div className="meetings-card-header">
+                      <span className="meetings-card-title">Upcoming Meetings</span>
+                      <button className="btn-icon-sm tooltip-btn" data-tip="Refresh" onClick={fetchAll}>
+                        <RefreshCw size={14} />
+                      </button>
+                    </div>
+                    <div className="meetings-list">
+                      {loading ? (
+                        <div className="loading-row">
+                          <div className="spinner" />
+                          Loading meetings…
+                        </div>
+                      ) : upcomingMeetings.length === 0 ? (
+                        <div className="empty-state">
+                          <Calendar size={32} strokeWidth={1} style={{ opacity: 0.25 }} />
+                          <div className="empty-state-text">No upcoming meetings</div>
+                          <div className="empty-state-sub">
+                            <button className="section-link" onClick={() => setShowSchedule(true)}>Schedule a meeting</button>
+                          </div>
+                        </div>
+                      ) : (
+                        upcomingMeetings.map(m => (
+                          <div key={m.id} className="meeting-row">
+                            <div className="meeting-row-time-col">
+                              <span className="meeting-row-time">
+                                {m.start_time ? fmtTime(m.start_time).replace(/(AM|PM)/, "") : "–"}
+                              </span>
+                              <span className="meeting-row-ampm">
+                                {m.start_time ? (new Date(m.start_time).getHours() >= 12 ? "PM" : "AM") : ""}
+                              </span>
+                            </div>
+                            <div className="meeting-row-divider" />
+                            <div className="meeting-row-info">
+                              <div className="meeting-row-title">{m.title}</div>
+                              <div className="meeting-row-meta">
+                                <Clock size={11} />
+                                {m.start_time ? fmtDate(m.start_time) : "—"}
+                                {m.duration_minutes ? ` · ${fmtDuration(m.duration_minutes)}` : ""}
+                              </div>
+                              <div className="meeting-row-id">{m.meeting_id}</div>
+                            </div>
+                            <div className="meeting-row-actions">
+                              <button
+                                className="btn-icon-sm tooltip-btn"
+                                data-tip="Copy invite link"
+                                onClick={() => copyToClipboard(m.invite_link, "Invite link copied!")}
+                              >
+                                <Link size={13} />
+                              </button>
+                              <button
+                                className="btn-start"
+                                onClick={() => router.push(`/room/${m.meeting_id}?name=${encodeURIComponent(currentUser?.username || "Host")}`)}
+                              >
+                                Start
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </section>
+
+                {/* RECENT MEETINGS */}
+                <section>
+                  <div className="section-header">
+                    <h2 className="section-title">Recent</h2>
+                  </div>
+                  <div className="meetings-card">
+                    <div className="tabs-row">
+                      {(["all", "upcoming", "past"] as const).map(tab => (
+                        <button
+                          key={tab}
+                          className={`tab-item ${recentTab === tab ? "active" : ""}`}
+                          onClick={() => setRecentTab(tab)}
+                        >
+                          {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="meetings-list">
+                      {loading ? (
+                        <div className="loading-row">
+                          <div className="spinner" />
+                          Loading…
+                        </div>
+                      ) : filteredRecent.length === 0 ? (
+                        <div className="empty-state">
+                          <Clock size={32} strokeWidth={1} style={{ opacity: 0.25 }} />
+                          <div className="empty-state-text">No meetings here</div>
+                        </div>
+                      ) : (
+                        filteredRecent.map(m => (
+                          <div key={m.id} className="recent-row">
+                            <div className="recent-icon">
+                              <Video size={15} strokeWidth={1.8} />
+                            </div>
+                            <div className="recent-info">
+                              <div className="recent-title">{m.title}</div>
+                              <div className="recent-meta">
+                                {m.start_time ? `${fmtDate(m.start_time)}, ${fmtTime(m.start_time)}` : `Created ${fmtDate(m.created_at)}`}
+                                {m.duration_minutes ? ` · ${fmtDuration(m.duration_minutes)}` : ""}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span className={`recent-badge ${m.is_active && isUpcoming(m.start_time) ? "active" : "ended"}`}>
+                                {m.is_active && isUpcoming(m.start_time) ? "Scheduled" : "Past"}
+                              </span>
+                              <button
+                                className="btn-icon-sm tooltip-btn"
+                                data-tip="Copy invite"
+                                onClick={() => copyToClipboard(m.invite_link, "Copied!")}
+                              >
+                                <Copy size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </section>
               </div>
-              <div className="meetings-card">
-                <div className="tabs-row">
-                  {(["all", "upcoming", "past"] as const).map(tab => (
+
+              {/* ── PERSONAL MEETING ID ── */}
+              <section>
+                <div className="pmi-banner">
+                  <div>
+                    <div className="pmi-label">Personal Meeting ID</div>
+                    <div className="pmi-id">
+                      {currentUser?.id
+                        ? `${String(currentUser.id).padStart(3, "0")}-${Math.floor(Math.random() * 900 + 100)}-${Math.floor(Math.random() * 9000 + 1000)}`
+                        : "839-201-9482"}
+                    </div>
+                  </div>
+                  <div className="pmi-actions">
                     <button
-                      key={tab}
-                      className={`tab-item ${recentTab === tab ? "active" : ""}`}
-                      onClick={() => setRecentTab(tab)}
+                      className="btn-outline"
+                      onClick={() => copyToClipboard("http://localhost:3000/join?id=839-201-9482", "Personal link copied!")}
                     >
-                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                      <Copy size={13} />
+                      Copy Invite Link
                     </button>
-                  ))}
+                    <button className="btn-primary" onClick={handleNewMeeting}>
+                      <VideoIcon size={13} />
+                      Start Meeting
+                    </button>
+                  </div>
                 </div>
-                <div className="meetings-list">
-                  {loading ? (
-                    <div className="loading-row">
-                      <div className="spinner" />
-                      Loading…
-                    </div>
-                  ) : filteredRecent.length === 0 ? (
-                    <div className="empty-state">
-                      <Clock size={32} strokeWidth={1} style={{ opacity: 0.25 }} />
-                      <div className="empty-state-text">No meetings here</div>
-                    </div>
-                  ) : (
-                    filteredRecent.map(m => (
-                      <div key={m.id} className="recent-row">
-                        <div className="recent-icon">
-                          <Video size={15} strokeWidth={1.8} />
-                        </div>
-                        <div className="recent-info">
-                          <div className="recent-title">{m.title}</div>
-                          <div className="recent-meta">
-                            {m.start_time ? `${fmtDate(m.start_time)}, ${fmtTime(m.start_time)}` : `Created ${fmtDate(m.created_at)}`}
-                            {m.duration_minutes ? ` · ${fmtDuration(m.duration_minutes)}` : ""}
-                          </div>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span className={`recent-badge ${m.is_active && isUpcoming(m.start_time) ? "active" : "ended"}`}>
-                            {m.is_active && isUpcoming(m.start_time) ? "Scheduled" : "Past"}
-                          </span>
-                          <button
-                            className="btn-icon-sm tooltip-btn"
-                            data-tip="Copy invite"
-                            onClick={() => copyToClipboard(m.invite_link, "Copied!")}
-                          >
-                            <Copy size={12} />
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+              </section>
+            </>
+          ) : (
+            <div className="empty-state" style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: "100%", width: "100%" }}>
+              <div style={{ background: "#F1F5F9", borderRadius: "50%", padding: 24, marginBottom: 24 }}>
+                <AlertCircle size={48} color="var(--zoom-blue)" style={{ opacity: 0.8 }} />
               </div>
-            </section>
-          </div>
-
-          {/* ── PERSONAL MEETING ID ── */}
-          <section>
-            <div className="pmi-banner">
-              <div>
-                <div className="pmi-label">Personal Meeting ID</div>
-                <div className="pmi-id">
-                  {currentUser?.id
-                    ? `${String(currentUser.id).padStart(3, "0")}-${Math.floor(Math.random() * 900 + 100)}-${Math.floor(Math.random() * 9000 + 1000)}`
-                    : "839-201-9482"}
-                </div>
-              </div>
-              <div className="pmi-actions">
-                <button
-                  className="btn-outline"
-                  onClick={() => copyToClipboard("http://localhost:3000/join?id=839-201-9482", "Personal link copied!")}
-                >
-                  <Copy size={13} />
-                  Copy Invite Link
-                </button>
-                <button className="btn-primary" onClick={handleNewMeeting}>
-                  <VideoIcon size={13} />
-                  Start Meeting
-                </button>
-              </div>
+              <h2 style={{ fontSize: 24, fontWeight: 600, color: "var(--text)", marginBottom: 12 }}>
+                {NAV_ITEMS.find(n => n.id === activeNav)?.label || "Settings"}
+              </h2>
+              <p style={{ color: "var(--text-muted)", fontSize: 14, maxWidth: 400, textAlign: "center", lineHeight: 1.6 }}>
+                The <strong style={{ color: "var(--text)" }}>{NAV_ITEMS.find(n => n.id === activeNav)?.label || "Settings"}</strong> feature leverages advanced modules currently restricted to the fully-authenticated Enterprise Web Portal. Check back soon for the lightweight web extension updates!
+              </p>
             </div>
-          </section>
+          )}
 
         </main>
       </div>
