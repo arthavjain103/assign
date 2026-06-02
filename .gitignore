@@ -1,0 +1,113 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual Environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+.vim/
+
+# OS
+Thumbs.db
+.DS_Store
+*.log
+
+# Data files (MP4s, JSONL, CSV)
+data/*.mp4
+data/*.MP4
+data/*.jsonl
+data/*.json
+data/*.csv
+data/*.tsv
+data/generated_events.jsonl
+data/sample_events.jsonl
+data/*.parquet
+
+# Config files with sensitive data
+.env
+.env.local
+.env.*.local
+config.local.yaml
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
+
+# Node/Frontend
+node_modules/
+.pnpm-store/
+pnpm-lock.yaml
+dist/
+build/
+.next/
+out/
+.vite/
+.cache/
+
+# Frontend artifacts
+frontend/artifacts/*/dist/
+frontend/artifacts/*/.vite/
+frontend/artifacts/*/node_modules/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints
+
+# Generated files
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+.~lock.*
+
+# Pipeline outputs
+pipeline/output/
+pipeline/logs/

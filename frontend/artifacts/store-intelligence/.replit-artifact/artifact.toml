@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Store Intelligence"
+version = "1.0.0"
+id = "artifacts/store-intelligence"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23663
+
+[services.development]
+run = "pnpm --filter @workspace/store-intelligence run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/store-intelligence", "run", "build" ]
+publicDir = "artifacts/store-intelligence/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23663"
+BASE_PATH = "/"
