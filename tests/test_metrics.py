@@ -56,7 +56,7 @@ def test_metrics_with_visitors(db: Session):
             timestamp=now,
             is_staff=False,
             confidence=0.95,
-            metadata=json.dumps({}),
+            event_metadata=json.dumps({}),
         )
         db.add(event)
 
@@ -205,7 +205,7 @@ def test_queue_depth_calculation(db: Session):
             zone_id="BILLING",
             is_staff=False,
             confidence=0.95,
-            metadata=json.dumps({"queue_depth": i + 1}),
+            event_metadata=json.dumps({"queue_depth": i + 1}),
         )
         db.add(queue_join)
 
@@ -231,7 +231,7 @@ def test_queue_depth_excludes_exits(db: Session):
         zone_id="BILLING",
         is_staff=False,
         confidence=0.95,
-        event_metadata=json.dumps({"queue_depth": i + 1}),
+        event_metadata=json.dumps({"queue_depth": 1}),
     )
     db.add(queue_join)
 

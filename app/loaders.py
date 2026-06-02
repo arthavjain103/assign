@@ -150,7 +150,7 @@ def load_sample_events(jsonl_path: Path | str, db: Session) -> None:
                         dwell_ms=event.dwell_ms,
                         is_staff=event.is_staff,
                         confidence=event.confidence,
-                        metadata=json.dumps(event.metadata),
+                        event_metadata=json.dumps(event.metadata),
                     )
                     db.add(db_event)
                     count += 1

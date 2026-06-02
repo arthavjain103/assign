@@ -53,8 +53,8 @@ def compute_funnel(store_id: str, db: Session, hours: int = 24) -> FunnelRespons
         )
     ).scalar() or 0
 
-    # Step 4: Purchase (unique visitors with POS transaction in window)
-    purchases = db.query(func.count(func.distinct(POSTransactionDB.store_id))).filter(
+    # Step 4: Purchase (unique POS transactions in window)
+    purchases = db.query(func.count(func.distinct(POSTransactionDB.transaction_id))).filter(
         and_(
             POSTransactionDB.store_id == store_id,
             POSTransactionDB.timestamp >= since,
