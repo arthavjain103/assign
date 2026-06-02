@@ -5,6 +5,7 @@ Structured logging with trace_id. All error responses return valid JSON, never 5
 import logging
 import uuid
 import json
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -19,7 +20,7 @@ import base64
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
-from .db import init_db, get_db, engine
+from .db import init_db, get_db, engine, EventDB
 from .models import (
     EventIngestionRequest,
     EventIngestionResponse,
@@ -105,10 +106,13 @@ async def lifespan(app: FastAPI):
 
     # Load sample data from data directory
     data_dir = Path(__file__).parent.parent / "data"
-    with next(get_db()) as db:
+    db = next(get_db())
+    try:
         load_store_layout(data_dir / "store_layout.json", db)
         load_pos_transactions(data_dir / "pos_transactions.csv", db)
         load_sample_events(data_dir / "sample_events.jsonl", db)
+    finally:
+        db.close()
 
     logger.info("startup", action="database_ready")
 
@@ -284,26 +288,33 @@ async def websocket_events_stream(websocket: WebSocket, db: Session = Depends(ge
     """Stream live events via WebSocket."""
     await websocket.accept()
     logger.info("Events stream connected")
-    
+
     try:
-        from .models import Event
-        
-        # Send recent events first
-        recent_events = db.query(Event).order_by(Event.created_at.desc()).limit(20).all()
+        # Send recent events first (use EventDB - the SQLAlchemy ORM model)
+        recent_events = (
+            db.query(EventDB)
+            .filter(EventDB.is_staff == False)
+            .order_by(EventDB.timestamp.desc())
+            .limit(50)
+            .all()
+        )
         for event in reversed(recent_events):
             await websocket.send_json({
                 "type": "event",
                 "event_id": str(event.event_id),
+                "store_id": str(event.store_id),
                 "visitor_id": str(event.visitor_id),
                 "event_type": event.event_type,
-                "zone": event.zone,
+                "zone_id": event.zone_id,
                 "camera_id": event.camera_id,
-                "timestamp": event.created_at.isoformat(),
+                "dwell_ms": event.dwell_ms,
+                "is_staff": event.is_staff,
+                "confidence": event.confidence,
+                "timestamp": event.timestamp.isoformat() + "Z",
             })
-        
-        # Keep connection alive and ready for new events
+
+        # Keep connection alive — heartbeat loop
         while True:
-            # Receive any incoming data (for heartbeat/ping)
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_json({"type": "pong"})
@@ -342,8 +353,13 @@ async def websocket_camera_stream(websocket: WebSocket, camera_id: str):
     
     try:
         cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            await websocket.send_json({"error": "Cannot open video file"})
+            await websocket.close()
+            return
+
         frame_count = 0
-        
+
         while True:
             success, frame = cap.read()
             if not success:
@@ -352,26 +368,25 @@ async def websocket_camera_stream(websocket: WebSocket, camera_id: str):
                 success, frame = cap.read()
                 if not success:
                     break
-            
+
             # Encode frame as JPEG
-            ret, buffer = cv2.imencode('.jpg', frame)
-            frame_bytes = buffer.tobytes()
-            frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
-            
-            # Send frame to client
+            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            if not ret:
+                continue
+            frame_b64 = base64.b64encode(buffer.tobytes()).decode('utf-8')
+
             await websocket.send_json({
                 "type": "frame",
                 "camera_id": camera_id,
                 "data": frame_b64,
                 "frame_number": frame_count,
             })
-            
+
             frame_count += 1
-            
-            # Skip frames to reduce bandwidth (30fps -> ~15fps)
-            if frame_count % 2 == 0:
-                cap.read()
-                frame_count += 1
+
+            # Yield to event loop so other requests aren't starved
+            # Target ~15 fps: sleep 66ms between frames
+            await asyncio.sleep(0.066)
                 
     except Exception as e:
         logger.error("websocket_camera_error", camera_id=camera_id, error=str(e))
