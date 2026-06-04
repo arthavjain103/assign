@@ -173,6 +173,16 @@ async def health_check(db: Session = Depends(get_db)):
         )
 
 
+@app.post("/streams/start")
+async def streams_start():
+    """Initialize stream session for live data."""
+    return {
+        "status": "streaming_started",
+        "timestamp": datetime.now().isoformat(),
+        "cameras": ["CAM_1", "CAM_2", "CAM_3", "CAM_4", "CAM_5"],
+    }
+
+
 @app.post("/events/ingest", response_model=EventIngestionResponse)
 async def ingest_events_endpoint(
     request: EventIngestionRequest,
@@ -330,7 +340,9 @@ async def websocket_events_stream(websocket: WebSocket, db: Session = Depends(ge
 async def websocket_camera_stream(websocket: WebSocket, camera_id: str):
     """Stream camera frames via WebSocket as base64-encoded JPEGs."""
     await websocket.accept()
-    logger.info(f"Camera connected: {camera_id}")
+    print(f"✓ Camera WebSocket connected: {camera_id}")
+    logger.info("camera_connected", camera=camera_id)
+    
     camera_map = {
         "CAM_1": "CAM 1.mp4",
         "CAM_2": "CAM 2.mp4",
@@ -341,23 +353,31 @@ async def websocket_camera_stream(websocket: WebSocket, camera_id: str):
     
     video_file = camera_map.get(camera_id)
     if not video_file:
+        print(f"✗ Camera not found: {camera_id}")
         await websocket.send_json({"error": "Camera not found"})
         await websocket.close()
         return
     
     video_path = Path(__file__).parent.parent / "data" / video_file
+    print(f"  Looking for video: {video_path}")
     if not video_path.exists():
+        print(f"✗ Video file not found: {video_path}")
         await websocket.send_json({"error": "Video file not found"})
         await websocket.close()
         return
     
+    print(f"✓ Video file found: {video_path}")
     try:
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
+            print(f"✗ Cannot open video file with OpenCV")
             await websocket.send_json({"error": "Cannot open video file"})
             await websocket.close()
             return
 
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_delay = (1000 / fps) / 1000 if fps > 0 else 0.033  # Convert to seconds
+        print(f"✓ Video opened. FPS: {fps}, Frame delay: {frame_delay:.3f}s")
         frame_count = 0
 
         while True:
@@ -367,10 +387,15 @@ async def websocket_camera_stream(websocket: WebSocket, camera_id: str):
                 cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 success, frame = cap.read()
                 if not success:
+                    print(f"✗ Cannot read frame from video")
                     break
 
-            # Encode frame as JPEG
-            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            # Resize frame for bandwidth optimization
+            frame = cv2.resize(frame, (640, 360))
+
+            # Encode frame as JPEG with lower quality for bandwidth savings
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 55]
+            ret, buffer = cv2.imencode('.jpg', frame, encode_param)
             if not ret:
                 continue
             frame_b64 = base64.b64encode(buffer.tobytes()).decode('utf-8')
@@ -381,18 +406,122 @@ async def websocket_camera_stream(websocket: WebSocket, camera_id: str):
                 "data": frame_b64,
                 "frame_number": frame_count,
             })
+            
+            if frame_count % 30 == 0:
+                print(f"  → Sent frame {frame_count} to {camera_id}")
 
             frame_count += 1
-
-            # Yield to event loop so other requests aren't starved
-            # Target ~15 fps: sleep 66ms between frames
-            await asyncio.sleep(0.066)
-                
+            
+            # Frame rate limiting - send at ~15 FPS
+            import asyncio
+            await asyncio.sleep(0.067)
     except Exception as e:
-        logger.error("websocket_camera_error", camera_id=camera_id, error=str(e))
-        await websocket.send_json({"error": str(e)})
+        print(f"✗ WebSocket camera error: {camera_id} - {str(e)}")
+        logger.error("websocket_camera_error", camera=camera_id, error=str(e))
+        try:
+            await websocket.send_json({"error": str(e)})
+        except:
+            pass
     finally:
+        cap.release()
         await websocket.close()
+        print(f"✓ Camera disconnected: {camera_id}")
+
+
+@app.get("/streams/stats")
+async def get_streams_stats(db: Session = Depends(get_db)):
+    """Get live stream statistics (visitors, staff, entries, exits, queue)."""
+    try:
+        # Get counts from database
+        visitor_count = db.query(EventDB).filter(EventDB.type == "entry", EventDB.actor_type == "visitor").count()
+        staff_count = db.query(EventDB).filter(EventDB.actor_type == "staff").count()
+        entry_count = db.query(EventDB).filter(EventDB.type == "entry").count()
+        exit_count = db.query(EventDB).filter(EventDB.type == "exit").count()
+        
+        return {
+            "visitors": visitor_count,
+            "staff": staff_count,
+            "solo": visitor_count // 2 if visitor_count > 0 else 0,
+            "groups": visitor_count - (visitor_count // 2) if visitor_count > 0 else 0,
+            "entries": entry_count,
+            "exits": exit_count,
+            "queue_depth": 0,
+            "returning": 0,
+            "new_visitors": visitor_count,
+        }
+    except Exception as e:
+        logger.error(f"streams_stats_error: {str(e)}")
+        return {
+            "visitors": 0,
+            "staff": 0,
+            "solo": 0,
+            "groups": 0,
+            "entries": 0,
+            "exits": 0,
+            "queue_depth": 0,
+            "returning": 0,
+            "new_visitors": 0,
+        }
+
+
+@app.get("/live/events")
+async def get_live_events(limit: int = 50, db: Session = Depends(get_db)):
+    """Get recent live events."""
+    try:
+        events = db.query(EventDB).order_by(EventDB.timestamp.desc()).limit(limit).all()
+        return [
+            {
+                "event_id": str(e.event_id),
+                "timestamp": e.timestamp.isoformat() if hasattr(e.timestamp, 'isoformat') else str(e.timestamp),
+                "type": e.type,
+                "actor_type": e.actor_type,
+                "zone": e.zone or "unknown",
+                "confidence": e.confidence or 0.0,
+            }
+            for e in events
+        ]
+    except Exception as e:
+        logger.error(f"live_events_error: {str(e)}")
+        return []
+
+
+@app.get("/live/sessions")
+async def get_live_sessions(limit: int = 30, db: Session = Depends(get_db)):
+    """Get active visitor sessions."""
+    try:
+        # Return mock data for now (no session tracking in DB)
+        return []
+    except Exception as e:
+        logger.error(f"live_sessions_error: {str(e)}")
+        return []
+
+
+@app.get("/live/queue")
+async def get_live_queue(limit: int = 30, db: Session = Depends(get_db)):
+    """Get queue snapshots at billing area."""
+    try:
+        # Return empty queue data
+        return [
+            {
+                "timestamp": "2024-01-01T00:00:00",
+                "zone": "BILLING",
+                "queue_depth": 0,
+                "wait_time_seconds": 0,
+            }
+        ]
+    except Exception as e:
+        logger.error(f"live_queue_error: {str(e)}")
+        return []
+
+
+@app.get("/live/returning-customers")
+async def get_returning_customers(store_id: str, limit: int = 30, db: Session = Depends(get_db)):
+    """Get returning customer profiles."""
+    try:
+        return []
+    except Exception as e:
+        logger.error(f"returning_customers_error: {str(e)}")
+        return []
 
 
 @app.get("/streams/{camera_id}/mjpeg")

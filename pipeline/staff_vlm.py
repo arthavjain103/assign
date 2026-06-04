@@ -4,12 +4,15 @@ Staff Detection Pipeline
 Logic:
 1. Person must be INSIDE the store (checked via entry line on CAM_3)
 2. CAM_4 (back-office): Always classified as STAFF when in back-office zone
-3. Other cameras: Dark torso ratio ≥ 55% triggers STAFF label (black uniform heuristic)
+3. Other cameras (including billing): Uniform color detection:
+   - Dark torso ratio ≥ 55% → STAFF (black uniform heuristic)
+   - OR pink torso ratio ≥ 50% → STAFF (pink uniform detection)
 4. StaffRegistry: Deduplicates same staff member across cameras and track-ID churn
 
 Uses:
 - Entry line detection (inside/outside gate)
 - Black uniform heuristic (dark torso HSV analysis)
+- Pink uniform detection (saturated pink hues in HSV)
 - Back-office zone polygon (CAM_4 only)
 - Staff body signature matching across cameras
 """
@@ -198,6 +201,44 @@ def compute_dark_torso_ratio(person_crop: np.ndarray) -> float:
     return min(1.0, ratio)
 
 
+def compute_pink_torso_ratio(person_crop: np.ndarray) -> float:
+    """
+    Compute pink torso ratio: fraction of pixels in torso region with pink color.
+    
+    Returns: ratio 0.0-1.0
+    Heuristic: pink torso (pink uniform) ≥ 0.50 → staff
+    
+    Pink in HSV:
+    - Hue: 0-15 (0°-30°) or 330-360 (330°-360°) in 0-180 range → 0-25 or 150-180
+    - Saturation: > 100 (moderately to highly saturated)
+    - Value: > 50 (visible, not too dark)
+    """
+    if person_crop is None or person_crop.size == 0:
+        return 0.0
+    
+    # Convert to HSV (OpenCV: H is 0-180, S is 0-255, V is 0-255)
+    hsv = cv2.cvtColor(person_crop, cv2.COLOR_BGR2HSV)
+    
+    # Define "pink" pixels:
+    # Hue in range [0-25] or [150-180] (pinkish hues)
+    # AND high saturation (S > 100)
+    # AND moderate-high value (V > 50)
+    hue = hsv[:, :, 0]
+    sat = hsv[:, :, 1]
+    val = hsv[:, :, 2]
+    
+    pink_mask = ((hue <= 25) | (hue >= 150)) & (sat > 100) & (val > 50)
+    
+    pink_pixels = np.sum(pink_mask)
+    total_pixels = person_crop.shape[0] * person_crop.shape[1]
+    
+    if total_pixels == 0:
+        return 0.0
+    
+    ratio = float(pink_pixels) / float(total_pixels)
+    return min(1.0, ratio)
+
+
 def is_in_back_office(
     bbox: Tuple[float, float, float, float],
     clip_type: str
@@ -232,7 +273,9 @@ def classify_staff(
     Logic:
     1. Check if INSIDE store (entry line for CAM_3)
     2. If CAM_4 (back-office): Check back-office zone
-    3. Otherwise: Check dark torso ratio ≥ 55% (black uniform)
+    3. Otherwise: Check uniform color detection:
+       - Dark torso ratio ≥ 55% (black uniform)
+       - OR pink torso ratio ≥ 50% (pink uniform)
     4. Register/match via StaffRegistry for cross-camera dedup
     """
     
@@ -251,15 +294,26 @@ def classify_staff(
         )
         return True, 0.95, staff_id
     
-    # Step 3: Dark torso ratio (uniform heuristic) for other cameras
+    # Step 3: Uniform color detection (black or pink) for all other cameras
     dark_ratio = compute_dark_torso_ratio(person_crop)
+    pink_ratio = compute_pink_torso_ratio(person_crop)
+    
+    # Staff if either black OR pink uniform detected
     if dark_ratio >= 0.55:
-        logger.debug(f"[{camera_id}] Staff via uniform (dark_ratio={dark_ratio:.2f})")
+        logger.debug(f"[{camera_id}] Staff via BLACK uniform (dark_ratio={dark_ratio:.2f})")
         body_sig = _compute_body_signature(person_crop)
         staff_id = _staff_registry.register_or_match_staff(
             track_id, body_sig, camera_id, timestamp
         )
         return True, min(1.0, dark_ratio), staff_id
+    
+    if pink_ratio >= 0.50:
+        logger.debug(f"[{camera_id}] Staff via PINK uniform (pink_ratio={pink_ratio:.2f})")
+        body_sig = _compute_body_signature(person_crop)
+        staff_id = _staff_registry.register_or_match_staff(
+            track_id, body_sig, camera_id, timestamp
+        )
+        return True, min(1.0, pink_ratio), staff_id
     
     return False, 0.0, None
 

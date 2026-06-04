@@ -1,39 +1,20 @@
-"""
-Event emission: schema-validated events with correct entry/exit and dwell logic.
-
-Event types emitted:
-  ENTRY              — vertical-line crossing inward (left→right)  (entry / floor clips)
-  EXIT               — vertical-line crossing outward (right→left) (entry / floor clips)
-  REENTRY            — visitor re-detected after previous exit (cross-clip re-ID)
-  ZONE_ENTER         — first detection in any zone
-  ZONE_DWELL         — every 30-second boundary while in zone
-  BILLING_QUEUE_JOIN — ZONE_ENTER when queue_depth > 0
-  ZONE_EXIT          — visitor leaves zone
-  BILLING_QUEUE_ABANDON — joined queue but no POS transaction within 5 min
-
-Key implementation:
-  1. ENTRY/EXIT via centroid crossing VERTICAL line (left/right) — not emitted on every frame
-  2. ZONE_DWELL fires on each 30s boundary, not once then every frame
-  3. Zone state resets on EXIT so a visitor can re-enter cleanly
-  4. dwell_ms carried correctly on all zone events
-  5. Virtual line positioned at frame width fraction (default 0.5 = center)
-"""
-
 import uuid
 import logging
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
 DWELL_INTERVAL_S = 30.0   # emit ZONE_DWELL on each 30-second boundary
 
+# ── Hysteresis margin around the virtual counting line (pixels) ──────────────
+# Centroids within [line_y - HYSTERESIS_PX, line_y + HYSTERESIS_PX] are
+# treated as "dead-zone" (side = 0) — no event emitted.
+HYSTERESIS_PX = 40
+
 
 class EventEmitter:
-    """
-    Stateful emitter: one instance per video clip.
-    Maintains per-visitor crossing state, zone timers, dwell ticks.
-    """
 
     def __init__(self, store_id: str = "STORE_001", line_ratio: float = 0.5):
         self.store_id = store_id
@@ -42,20 +23,17 @@ class EventEmitter:
             "floor":   "CAM_FLOOR_01",
             "billing": "CAM_CHECKOUT_01",
         }
-        # Virtual counting line: fraction of frame width (VERTICAL line for entry/exit gates)
-        # 0.5 = vertical line at mid-frame (works for center-mounted entry cameras)
-        # Line orientation: VERTICAL (x-axis crossing) not horizontal
+        # Virtual counting line: fraction of frame height
         self.line_ratio = line_ratio
 
         # Per-visitor state dicts
         self.zone_enter_time:    Dict[str, float] = {}
         self.last_dwell_tick:    Dict[str, int]   = {}
-        self.last_centroid_side: Dict[str, int]   = {}   # -1 above line / +1 below
         self.entered:            set[str]         = set()
         self.session_seq:        Dict[str, int]   = {}
-        self.reentry_emitted:    set[str]         = set()   # avoid duplicate REENTRY
-        self.zone_exit_emitted:  set[str]         = set()   # avoid duplicate ZONE_EXIT
-        self.billing_joins:      Dict[str, float] = {}   # visitor_id → join_timestamp
+        self.reentry_emitted:    set[str]         = set()
+        self.zone_exit_emitted:  set[str]         = set()
+        self.billing_joins:      Dict[str, float] = {}
 
     # ── Internal helpers ──────────────────────────────────────────────────────
     def _next_seq(self, visitor_id: str) -> int:
@@ -97,6 +75,8 @@ class EventEmitter:
             },
         }
 
+
+
     # ── Main emit method ──────────────────────────────────────────────────────
     def emit(
         self,
@@ -110,21 +90,19 @@ class EventEmitter:
         is_staff:        bool,
         staff_conf:      float,
         session_info:    dict,
-        frame:           Any,                    # np.ndarray
+        frame:           Any,
         bbox:            Tuple[int, int, int, int],
         queue_depth:     Optional[int] = None,
         is_reentry:      bool = False,
+        crossing_event:  Optional[str] = None,
     ) -> Optional[dict]:
-        """
-        Emit one event for this detection, or None if no event boundary crossed.
-        """
+
         x, y, w, h = bbox
-        cx  = x + w // 2                        # centroid x (horizontal)
+        cy  = y + h // 2
         now = event_timestamp.timestamp()
 
-        # ── ENTRY / EXIT camera (virtual-line crossing) ───────────────────────
+        # ── ENTRY / EXIT camera (NEW LineTracker logic) ───────────
         if clip_type in ("entry", "floor"):
-            # Check for REENTRY event (cross-clip re-ID match)
             if is_reentry and visitor_id not in self.reentry_emitted:
                 self.reentry_emitted.add(visitor_id)
                 camera_id = self.camera_map[clip_type]
@@ -140,27 +118,20 @@ class EventEmitter:
                     dwell_ms        = 0,
                     queue_depth     = None,
                 )
+            
+            # Use crossing_event from LineTracker (computed at frame level in detect.py)
+            event_type = crossing_event
+            if event_type is None:
+                return None
+            
+            # Update state based on crossing type
+            if event_type == "ENTRY":
+                self.entered.add(visitor_id)
+            elif event_type == "EXIT":
+                self.reset_zone(visitor_id)
+                self.reentry_emitted.discard(visitor_id)
 
             camera_id = self.camera_map[clip_type]
-            line_x    = int(frame.shape[1] * self.line_ratio)  # vertical line at frame width fraction
-            side      = 1 if cx >= line_x else -1  # right (+1) or left (-1) of vertical line
-            prev_side = self.last_centroid_side.get(visitor_id)
-            self.last_centroid_side[visitor_id] = side
-
-            if prev_side is None or side == prev_side:
-                return None   # no crossing this frame
-
-            # Crossing detected — direction → event type
-            # LEFT to RIGHT: +1 (entering store)
-            # RIGHT to LEFT: -1 (exiting store)
-            if prev_side == -1 and side == 1:
-                event_type = "ENTRY"
-                self.entered.add(visitor_id)
-            else:
-                event_type = "EXIT"
-                self.reset_zone(visitor_id)
-                self.reentry_emitted.discard(visitor_id)  # allow future reenters
-
             return self._build(
                 event_type      = event_type,
                 camera_id       = camera_id,
@@ -174,26 +145,20 @@ class EventEmitter:
                 queue_depth     = None,
             )
 
-        # ── BILLING zone ──────────────────────────────────────────────────────
+        # ── BILLING zone (NEW line crossing logic) ───────────────────────────
         if clip_type == "billing":
             camera_id = self.camera_map["billing"]
             zone_id   = "BILLING"
-
-            if visitor_id not in self.zone_enter_time:
-                # First appearance in billing zone
+            
+            # Use line crossing event to track queue join (only once per crossing)
+            if crossing_event == "ENTRY":
+                # Customer entered billing zone - emit BILLING_QUEUE_JOIN
                 self.zone_enter_time[visitor_id]  = now
                 self.last_dwell_tick[visitor_id]  = 0
-                event_type = (
-                    "BILLING_QUEUE_JOIN"
-                    if (queue_depth is not None and queue_depth > 0)
-                    else "ZONE_ENTER"
-                )
-                # Track queue joins for abandon detection
-                if event_type == "BILLING_QUEUE_JOIN":
-                    self.billing_joins[visitor_id] = now
+                self.billing_joins[visitor_id] = now
                 
                 return self._build(
-                    event_type      = event_type,
+                    event_type      = "BILLING_QUEUE_JOIN",
                     camera_id       = camera_id,
                     zone_id         = zone_id,
                     visitor_id      = visitor_id,
@@ -204,8 +169,15 @@ class EventEmitter:
                     dwell_ms        = 0,
                     queue_depth     = queue_depth,
                 )
+            elif crossing_event == "EXIT":
+                # Customer exited billing zone
+                self.reset_zone(visitor_id)
+                return None
 
-            # Already in zone — emit ZONE_DWELL on each new 30s boundary
+            # For frames without crossing event, check for ZONE_DWELL
+            if visitor_id not in self.zone_enter_time:
+                return None
+
             elapsed = now - self.zone_enter_time[visitor_id]
             tick    = int(elapsed // DWELL_INTERVAL_S)
             if tick > self.last_dwell_tick.get(visitor_id, 0):
@@ -222,9 +194,9 @@ class EventEmitter:
                     dwell_ms        = int(elapsed * 1000),
                     queue_depth     = queue_depth,
                 )
-            return None   # within current 30s window
+            return None
 
-        # ── Generic fallback (main floor zone enter) ──────────────────────────
+        # ── Generic fallback ──────────────────────────────────────────────────
         camera_id = self.camera_map.get(clip_type, "CAM_GENERIC")
         if visitor_id not in self.zone_enter_time:
             self.zone_enter_time[visitor_id] = now
@@ -244,29 +216,28 @@ class EventEmitter:
         return None
 
     def reset_zone(self, visitor_id: str) -> None:
-        """Reset zone state on EXIT — visitor can re-enter cleanly."""
         self.zone_enter_time.pop(visitor_id, None)
         self.last_dwell_tick.pop(visitor_id, None)
+        # FIX (Bug 1): clear zone_exit_emitted so a re-entering visitor can
+        # receive a fresh ZONE_EXIT on a subsequent billing visit.
+        self.zone_exit_emitted.discard(visitor_id)
 
     def emit_zone_exit(
         self,
         visitor_id: str,
         event_timestamp: datetime,
     ) -> Optional[dict]:
-        """
-        Emit ZONE_EXIT event when visitor leaves billing zone.
-        Called when visitor is no longer detected for >60s.
-        """
+
         if visitor_id in self.zone_exit_emitted:
-            return None  # already emitted
-        
+            return None
+
         if visitor_id not in self.zone_enter_time:
-            return None  # never entered
-        
+            return None
+
         self.zone_exit_emitted.add(visitor_id)
         now = event_timestamp.timestamp()
         elapsed = now - self.zone_enter_time[visitor_id]
-        
+
         camera_id = self.camera_map["billing"]
         return self._build(
             event_type      = "ZONE_EXIT",
@@ -285,38 +256,24 @@ class EventEmitter:
         self,
         current_visitors: set[str],
         event_timestamp: datetime,
-        pos_conversions: Dict[str, float],  # visitor_id → conversion_timestamp
+        pos_conversions: Dict[str, float],
     ) -> list[dict]:
-        """
-        Detect BILLING_QUEUE_ABANDON: visitor joined queue but didn't convert.
-        
-        Args:
-            current_visitors: set of visitor IDs currently in frame
-            event_timestamp: current timestamp
-            pos_conversions: dict of visitor_id→timestamp for completed transactions
-            
-        Returns:
-            list of BILLING_QUEUE_ABANDON events
-        """
+
         abandon_events = []
         now = event_timestamp.timestamp()
-        
+
         for visitor_id, join_time in list(self.billing_joins.items()):
-            # Skip if still in zone
             if visitor_id in current_visitors:
                 continue
-            
-            # Check if already converted
+
             if visitor_id in pos_conversions:
                 txn_time = pos_conversions[visitor_id]
-                if txn_time - join_time >= 0 and txn_time - join_time <= 300:  # 5 min
-                    # Converted within window
+                if 0 <= txn_time - join_time <= 300:
                     del self.billing_joins[visitor_id]
                     continue
-            
-            # Check if > 5 min passed since join
+
             time_in_queue = now - join_time
-            if time_in_queue > 300:  # 5 minutes
+            if time_in_queue > 300:
                 abandon_events.append(
                     self._build(
                         event_type      = "BILLING_QUEUE_ABANDON",
@@ -332,5 +289,5 @@ class EventEmitter:
                     )
                 )
                 del self.billing_joins[visitor_id]
-        
+
         return abandon_events

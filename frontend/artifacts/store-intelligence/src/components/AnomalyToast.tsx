@@ -52,7 +52,9 @@ export function AnomalyToast({ anomalies }: AnomalyToastProps) {
 
   return (
     <div className="toast-container" role="alert" aria-live="assertive">
-      {toasts.map(({ id, anomaly, exiting }) => (
+      {toasts.map(({ id, anomaly, exiting }) => {
+        if (!anomaly || !anomaly.type) return null
+        return (
         <div
           key={id}
           className={`toast toast--${anomaly.severity}${exiting ? ' exiting' : ''}`}
@@ -74,7 +76,8 @@ export function AnomalyToast({ anomalies }: AnomalyToastProps) {
           <p className="toast-action">↳ {anomaly.suggested_action}</p>
           <div className="toast-progress" aria-hidden="true" />
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

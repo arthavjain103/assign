@@ -19,7 +19,8 @@ Detection Pipeline: YOLOv8s + Native Ultralytics Tracking (ByteTrack / BoT-SORT)
 
 4. QUEUE DEPTH CALCULATION (Billing Zone Only)
    - Formula: queue_depth = count(distinct visitor_id in BILLING zone) - staff_count
-   - Eliminates redundant localized counts and filters out static employees to capture raw customer wait metrics.
+   - Filters out: staff with black uniforms (dark ratio ≥55%) OR pink uniforms (pink ratio ≥50%)
+   - Captures raw customer wait metrics for accurate queue analytics
 
 6. OBSERVABILITY & OUTPUT
    - Outputs structured, append-only newline-delimited JSON (events.jsonl).
@@ -31,14 +32,26 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional
+import sys
 
 import cv2
 import numpy as np
 from ultralytics import YOLO
 
-from .tracker import SessionManager, ReIDTracker
-from .emit import EventEmitter
-from .staff_vlm import is_staff_vit, STAFF_ZONE_POLYGON, get_staff_registry
+# Handle both module and script/notebook execution contexts
+try:
+    from .tracker import SessionManager, ReIDTracker
+    from .emit import EventEmitter
+    from .staff_vlm import is_staff_vit, STAFF_ZONE_POLYGON, get_staff_registry
+    from .entry_exit_detector import LineTracker
+except ImportError:
+    # Fallback for script/notebook execution
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from tracker import SessionManager, ReIDTracker
+    from emit import EventEmitter
+    from staff_vlm import is_staff_vit, STAFF_ZONE_POLYGON, get_staff_registry
+    from entry_exit_detector import LineTracker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -51,9 +64,6 @@ CLIP_TYPE_TO_CAMERA = {
     "back_office": "CAM_4",
 }
 
-# ── Tracker selection per clip type ─────────────────────────────────────────
-# ByteTrack : entry / floor  — fast, two-pass recovery, no appearance overhead
-# BoT-SORT  : billing        — appearance model for dense stationary queues
 TRACKER_CONFIG = {
     "entry":   "bytetrack.yaml",
     "floor":   "bytetrack.yaml",
@@ -61,7 +71,7 @@ TRACKER_CONFIG = {
 }
 
 COCO_PERSON_CLASS = 0
-DEFAULT_CONF      = 0.25   # keep low — flag downstream, don't suppress
+DEFAULT_CONF      = 0.25
 DEFAULT_IMGSZ     = 640
 
 
@@ -72,26 +82,21 @@ class DetectionPipeline:
         self.model    = YOLO(model_path)
         self.device   = device
         self.use_half = str(device).isdigit() or device.startswith("cuda")
-        # Global ReID tracker — shared across all clips for cross-camera dedup
         self.global_reid = ReIDTracker(clip_type="global")
+        self.line_tracker = LineTracker(tracker_name="entry_exit")  # For entry/exit detection
+        self.billing_queue_tracker = LineTracker(line_y_norm=0.75, tracker_name="billing_queue")  # For billing queue joins
 
     def process_video(
         self,
         video_path:     str,
-        clip_type:      str,           # "entry" | "floor" | "billing"
+        clip_type:      str,
         store_id:       str  = "STORE_001",
         fps:            Optional[int]  = None,
         vid_stride:     int  = 3,
         conf_threshold: float = DEFAULT_CONF,
         imgsz:          int   = DEFAULT_IMGSZ,
     ) -> list[dict]:
-        """
-        Run detection + tracking on a single video clip.
-        Uses global ReID tracker for cross-camera visitor dedup.
-
-        Returns:
-            list of event dicts matching the Store Intelligence schema.
-        """
+        
         cap       = cv2.VideoCapture(video_path)
         video_fps = fps or (cap.get(cv2.CAP_PROP_FPS) or 30.0)
         cap.release()
@@ -100,13 +105,17 @@ class DetectionPipeline:
         tracker_cfg = TRACKER_CONFIG.get(clip_type, "bytetrack.yaml")
 
         session_mgr = SessionManager()
-        reid        = self.global_reid  # Use shared global ReID for cross-camera dedup
+        reid        = self.global_reid
         emitter     = EventEmitter(store_id=store_id)
+        
+        # Reset line trackers for new video (entry/exit and billing queue detection)
+        self.line_tracker.reset()
+        self.billing_queue_tracker.reset()
 
         events:      list[dict]                              = []
         processed    = 0
-        current_billing_visitors: set[str] = set()  # track active visitors in billing zone
-        staff_cache: Dict[int, tuple[bool, float, Optional[str]]] = {}  # track_id → (is_staff, confidence, staff_id)
+        current_billing_visitors: set[str] = set()
+        staff_cache: Dict[int, tuple[bool, float, Optional[str]]] = {}
 
         logger.info(
             "▶ %s  clip_type=%s  tracker=%s  fps=%.1f  stride=%d",
@@ -137,31 +146,32 @@ class DetectionPipeline:
                 xyxy  = boxes.xyxy.cpu().numpy()
                 ids   = boxes.id.cpu().numpy().astype(int)
                 confs = boxes.conf.cpu().numpy()
+                
+                # Detect line crossings (entry/exit or billing queue)
+                crossing_events = {}  # Initialize empty dict
+                billing_queue_crossings = {}  # Initialize empty dict
+                
+                if clip_type in ["entry", "floor"]:
+                    crossing_events = self.line_tracker.process_frame(ids, xyxy, fh)
+                elif clip_type == "billing":
+                    billing_queue_crossings = self.billing_queue_tracker.process_frame(ids, xyxy, fh)
 
-                # First pass: detect staff to calculate accurate queue_depth
+                valid_detections = []
                 frame_staff_count = 0
-                for track_id in ids:
-                    if track_id in staff_cache:
-                        is_staff, _, _ = staff_cache[track_id]
-                        if is_staff:
-                            frame_staff_count += 1
 
-                # Second pass: process detections
+                # ── FIRST PASS: Cache classification securely to fix Bug 4 (Double-counting) ──
                 for (x1, y1, x2, y2), track_id, conf in zip(xyxy, ids, confs):
-                    # Clamp to frame bounds
-                    x1c = max(0, int(x1)); y1c = max(0, int(y1))
-                    x2c = min(fw, int(x2)); y2c = min(fh, int(y2))
+                    x1c, y1c = max(0, int(x1)), max(0, int(y1))
+                    x2c, y2c = min(fw, int(x2)), min(fh, int(y2))
                     w, h = x2c - x1c, y2c - y1c
+                    
                     if w <= 0 or h <= 0:
                         continue
+                    
+                    valid_detections.append((x1c, y1c, x2c, y2c, w, h, track_id, conf))
 
-                    crop = frame[y1c:y2c, x1c:x2c]
-
-                    # ── Staff classification (new logic: inside/outside, uniform, back-office) ──
-                    # Uses: entry line check, dark torso ratio, back-office zone detection
-                    if track_id in staff_cache:
-                        is_staff, staff_conf, staff_id = staff_cache[track_id]
-                    else:
+                    if track_id not in staff_cache:
+                        crop = frame[y1c:y2c, x1c:x2c]
                         try:
                             camera_id = CLIP_TYPE_TO_CAMERA.get(clip_type, "CAM_1")
                             now_epoch = clip_start.timestamp() + frame_idx / video_fps
@@ -175,64 +185,73 @@ class DetectionPipeline:
                                 camera_id=camera_id,
                                 timestamp=now_epoch
                             )
-                            is_staff   = staff_conf > 0.5  # binary threshold
+                            is_staff   = staff_conf > 0.5
                             staff_registry = get_staff_registry()
-                            staff_id   = list(staff_registry.track_to_staff_id.get(track_id, ""))
-                            staff_id   = staff_id if staff_id else None
+                            
+                            # FIX BUG-1: Correct dictionary access
+                            staff_id = staff_registry.track_to_staff_id.get(track_id, None)
                             
                             staff_cache[track_id] = (is_staff, staff_conf, staff_id)
-                            if is_staff:
-                                frame_staff_count += 1
                         except Exception as e:
                             logger.warning("Staff detection failed: %s, assuming customer", e)
-                            is_staff = False
-                            staff_conf = 0.0
-                            staff_id = None
-                            staff_cache[track_id] = (is_staff, staff_conf, staff_id)
+                            staff_cache[track_id] = (False, 0.0, None)
 
-                    # ── Cross-clip Re-ID (reentry within 15 min window) ──
+                    # Accurately count staff based on the updated cache
+                    if staff_cache[track_id][0]:
+                        frame_staff_count += 1
+
+                # ── SECOND PASS: Trackers, Sessions, and Event Emission ──
+                for x1c, y1c, x2c, y2c, w, h, track_id, conf in valid_detections:
+                    crop = frame[y1c:y2c, x1c:x2c]
+                    is_staff, staff_conf, staff_id = staff_cache[track_id]
                     now_epoch = clip_start.timestamp() + frame_idx / video_fps
-                    matched_visitor_id, sim = reid.match_reentry(crop, now_epoch)
+                    
+                    # FIX BUG-2, BUG-3, BUG-7: Use session_mgr to block frame-by-frame ID generation
+                    # get_or_create_session returns (visitor_id, session_dict)
+                    session_visitor_id, session_info = session_mgr.get_or_create_session(
+                        int(track_id),
+                        is_staff
+                    )
+                    
+                    # Use the visitor_id from session if available, otherwise generate via Re-ID
+                    visitor_id = session_visitor_id
+                    is_reentry = False
 
-                    if matched_visitor_id is not None and sim >= reid.match_threshold:
-                        # Reentry detected — reuse existing visitor_id
-                        is_reentry = True
-                        visitor_id = matched_visitor_id
-                        logger.info(
-                            "[%s] Cross-camera MATCH: %s (sim=%.3f thresh=%.2f)",
-                            clip_type, visitor_id, sim, reid.match_threshold
-                        )
-                    else:
-                        # New visitor
-                        is_reentry = False
-                        visitor_id = f"VIS_{track_id}_{int(now_epoch)}"
-                        logger.debug(
-                            "[%s] NEW visitor: %s (best_sim=%.3f thresh=%.2f)",
-                            clip_type, visitor_id, sim, reid.match_threshold
-                        )
+                    # Only run Re-ID if this track hasn't been assigned an ID yet
+                    if not visitor_id:
+                        matched_visitor_id, sim = reid.match_reentry(crop, now_epoch)
 
-                    session_info = {}
+                        if matched_visitor_id is not None and sim >= reid.match_threshold:
+                            is_reentry = True
+                            visitor_id = matched_visitor_id
+                            logger.info("[%s] Cross-camera MATCH: %s (sim=%.3f thresh=%.2f)", clip_type, visitor_id, sim, reid.match_threshold)
+                        else:
+                            visitor_id = f"VIS_{track_id}_{int(now_epoch)}"
+                            logger.debug("[%s] NEW visitor: %s (best_sim=%.3f thresh=%.2f)", clip_type, visitor_id, sim, reid.match_threshold)
 
                     frame_time      = frame_idx / video_fps
                     event_timestamp = clip_start + timedelta(seconds=frame_time)
 
-                    # ── Queue depth: count only non-staff customers in billing zone ──
-                    # Only count if this detection is a customer (not staff)
+                    # Queue depth logic based on accurate pass-1 staff counts
                     if clip_type == "billing" and not is_staff:
-                        total_people = len(ids)
+                        total_people = len(valid_detections)
                         queue_depth = max(0, total_people - frame_staff_count)
                     else:
                         queue_depth = None
                     
-                    # Skip emitting events for staff in billing zone
                     if clip_type == "billing" and is_staff:
-                        logger.debug("[billing] Staff detected: %s (conf=%.2f)", visitor_id, staff_conf)
                         continue
                     
-                    # Track active visitors in billing zone (customers only)
                     if clip_type == "billing" and not is_staff:
                         current_billing_visitors.add(visitor_id)
 
+                    # Get crossing event for this track
+                    crossing_event = None
+                    if clip_type in ["entry", "floor"]:
+                        crossing_event = crossing_events.get(track_id)
+                    elif clip_type == "billing":
+                        crossing_event = billing_queue_crossings.get(track_id)
+                    
                     event_dict = emitter.emit(
                         track_id        = int(track_id),
                         visitor_id      = visitor_id,
@@ -243,65 +262,42 @@ class DetectionPipeline:
                         conf            = float(conf),
                         is_staff        = is_staff,
                         staff_conf      = staff_conf,
-                        session_info    = session_info,
+                        session_info    = session_info if isinstance(session_info, dict) else session_info.__dict__ if hasattr(session_info, '__dict__') else {},
                         frame           = frame,
                         bbox            = (x1c, y1c, w, h),
                         queue_depth     = queue_depth,
                         is_reentry      = is_reentry,
+                        crossing_event  = crossing_event,
                     )
+                    
                     if event_dict is not None:
                         events.append(event_dict)
                         if event_dict["event_type"] == "EXIT":
-                            # Store embedding for re-entry matching
                             reid.store_exit(visitor_id, crop, now_epoch)
-                            # Track session exit
-                            session_mgr.mark_exit(
-                                int(track_id),
-                                event_timestamp
-                            )
+                            session_mgr.mark_exit(int(track_id), event_timestamp)
 
             processed += 1
 
-        # ── Post-processing: emit ZONE_EXIT and check BILLING_QUEUE_ABANDON ──
+        # ── Post-processing ──
         if clip_type == "billing" and processed > 0:
             final_timestamp = clip_start + timedelta(seconds=processed * vid_stride / video_fps)
             
-            # Emit ZONE_EXIT for visitors who entered but are no longer detected
             for visitor_id in list(emitter.zone_enter_time.keys()):
                 if visitor_id not in current_billing_visitors:
                     zone_exit_event = emitter.emit_zone_exit(visitor_id, final_timestamp)
                     if zone_exit_event:
                         events.append(zone_exit_event)
-                        logger.info(
-                            "[billing] ZONE_EXIT: %s (dwell=%.1fs)",
-                            visitor_id,
-                            zone_exit_event["dwell_ms"] / 1000
-                        )
-            
-            # Check for BILLING_QUEUE_ABANDON
-            # Empty dict for now — would be populated from POS data in production
+                        
             pos_conversions: Dict[str, float] = {}
             abandon_events = emitter.check_queue_abandons(
-                current_billing_visitors,
-                final_timestamp,
-                pos_conversions
+                current_billing_visitors, final_timestamp, pos_conversions
             )
             events.extend(abandon_events)
-            for event in abandon_events:
-                logger.warning(
-                    "[billing] BILLING_QUEUE_ABANDON: %s (queue_time=%.1fs)",
-                    event["visitor_id"],
-                    event["dwell_ms"] / 1000
-                )
 
-        logger.info(
-            "✓ %d frames processed (stride=%d) → %d events",
-            processed, vid_stride, len(events),
-        )
+        logger.info("✓ %d frames processed (stride=%d) → %d events", processed, vid_stride, len(events))
         return events
 
 
-# ── CLI entry point ──────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="Retail CCTV detection pipeline")
     parser.add_argument("--video",      required=True)
@@ -330,9 +326,6 @@ def main():
     with open(args.output, "a") as f:
         for e in events:
             f.write(json.dumps(e) + "\n")
-
-    logger.info("Saved %d events → %s", len(events), args.output)
-
 
 if __name__ == "__main__":
     main()

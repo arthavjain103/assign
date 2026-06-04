@@ -29,6 +29,9 @@ ENV/
 env/
 .venv
 
+DEMO_PITCH_SCRIPT.md
+ENTRY_EXIT_GUIDE.md
+
 # IDE & Editors
 .vscode/
 .idea/

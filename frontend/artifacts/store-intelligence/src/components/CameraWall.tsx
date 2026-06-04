@@ -89,24 +89,43 @@ const CameraFeed = React.memo(function CameraFeed({
 
   const connect = useCallback(() => {
     if (wsRef.current) wsRef.current.close()
-    const ws = new WebSocket(wsCameraUrl(cameraId))
+    const wsUrl = wsCameraUrl(cameraId)
+    console.log(`[CameraWall] Connecting to ${wsUrl}`)
+    const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
-    ws.onopen  = () => { setWsOk(true); retryCount.current = 0 }
+    ws.onopen  = () => { 
+      console.log(`[CameraWall] WebSocket opened for ${cameraId}`)
+      setWsOk(true); 
+      retryCount.current = 0 
+    }
     ws.onclose = () => {
+      console.log(`[CameraWall] WebSocket closed for ${cameraId}`)
       setWsOk(false)
       // exponential back-off up to 15 s
       const delay = Math.min(1000 * Math.pow(2, retryCount.current), 15000)
       retryCount.current++
+      console.log(`[CameraWall] Reconnecting ${cameraId} in ${delay}ms (attempt ${retryCount.current})`)
       retryRef.current = setTimeout(connect, delay)
     }
-    ws.onerror = () => { setOffline(true) }
+    ws.onerror = (err) => { 
+      console.error(`[CameraWall] WebSocket error for ${cameraId}:`, err)
+      setOffline(true) 
+    }
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data as string)
-        if (msg.type === 'frame' && msg.data) drawFrame(msg.data)
-        if (msg.error) setOffline(true)
-      } catch { /* ignore */ }
+        if (msg.type === 'frame' && msg.data) {
+          console.log(`[CameraWall] Frame received for ${cameraId}, size: ${msg.data.length}`)
+          drawFrame(msg.data)
+        }
+        if (msg.error) {
+          console.error(`[CameraWall] Error message from server for ${cameraId}:`, msg.error)
+          setOffline(true)
+        }
+      } catch (err) { 
+        console.error(`[CameraWall] Failed to parse message for ${cameraId}:`, err)
+      }
     }
   }, [cameraId, drawFrame])
 
@@ -127,7 +146,7 @@ const CameraFeed = React.memo(function CameraFeed({
         <canvas
           ref={canvasRef}
           width={640}
-          height={480}
+          height={360}
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
         />
       ) : (
