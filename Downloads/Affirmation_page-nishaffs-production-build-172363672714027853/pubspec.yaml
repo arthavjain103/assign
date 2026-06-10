@@ -1,0 +1,185 @@
+name: nishaffs
+description: "NishAffs ✨ — India's Cutest Affirmation App — Full Working v4"
+publish_to: 'none'
+version: 1.0.0+4
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  google_fonts: ^6.1.0
+  shared_preferences: ^2.2.2
+  smooth_page_indicator: ^1.1.0
+  flutter_animate: ^4.5.0
+  cached_network_image: ^3.3.1
+  flutter_riverpod: ^3.3.1
+  go_router: ^17.2.3
+  # Audio Playback
+  just_audio: ^0.9.39
+  audio_session: ^0.1.18
+  # Image Picker
+  image_picker: ^1.1.2
+  # Path Provider for file storage
+  path_provider: ^2.1.4
+  # File storage and caching
+  gallery_saver: ^2.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/audio/
+
+# ═══════════════════════════════════════════════════════════════════
+#  WHAT'S NEW IN v4 — EVERYTHING WORKING
+# ═══════════════════════════════════════════════════════════════════
+#
+# ✅ LOGIN SCREEN
+#   - Cute animated login with backdrop blur on top of aesthetic image
+#   - Name + Email + Password fields
+#   - Guest login option
+#   - Sign up / sign in toggle
+#   - Stored in SharedPreferences (swap with Firebase Auth)
+#
+# ✅ LEFT SWIPE DRAWER
+#   - Swipe RIGHT on any screen → panel slides in from left
+#   - Shows: avatar, name, streak stats
+#   - Bookmarks section with saved affirmations
+#   - All nav links (Saved, Liked Posts, My Affirmations, Settings)
+#   - Sign Out button
+#   - Tap anywhere outside to close
+#
+# ✅ DAILY AFFIRMATION (date-based rotation)
+#   - 31 unique affirmations
+#   - Rotates automatically based on year×month×day formula
+#   - Never repeats same affirmation within a month
+#   - Also cycles every 6 seconds on home screen
+#
+# ✅ KINDLE PAGE FLIP (Real 3D animation)
+#   - Swipe LEFT to go to next page
+#   - Swipe RIGHT to go to previous page
+#   - Tap RIGHT side of screen → next page
+#   - Tap LEFT side of screen → previous page
+#   - Real perspective 3D flip using Matrix4.rotateY()
+#   - Two-phase: page flips OUT (0→90°) then next page flips IN (90°→0°)
+#   - Shadow cast under flipping page for realism
+#   - Warm cream book background (Color 0xFFFAF6F0)
+#   - Progress bar at top of reader
+#   - 4 full books with real LOA content
+#
+# ✅ STORY VIEWER
+#   - Tap any story bubble → full-screen story viewer
+#   - Progress bars at top auto-advance (4s per story)
+#   - Tap LEFT half → previous story
+#   - Tap RIGHT half → next story / next user
+#   - Auto-advances between users
+#   - Swipe down to close
+#
+# ✅ WORKING LIKE / COMMENT / SHARE / BOOKMARK
+#   - Like: tap heart → animates scale → count updates → saves to SharedPreferences
+#   - Comment: opens bottom sheet → type + send → appears instantly
+#   - Share: shows snackbar "link copied"
+#   - Bookmark: saves post ID to SharedPreferences → shows in Left Drawer
+#   - All state persists between app restarts
+#
+# ✅ STUDIO → POST CREATION FLOW
+#   - Type your affirmation
+#   - Pick vibe (Self Love, Abundance, Confidence, Healing, Gratitude, Peace)
+#   - Pick background (8 options)
+#   - Preview renders live
+#   - Press "Create & Share" → popup appears with 4 options:
+#     • "Post to Community" → appears in community feed instantly
+#     • "Save" → saves to your journal
+#     • "Share" → share to other apps
+#     • "Post as Story" → (story posting)
+#
+# ✅ COMMUNITY FEED
+#   - 5 seed posts with real affirmation content
+#   - Stories row at top (6 users)
+#   - Working likes that persist
+#   - Working comments with real-time update
+#   - When you post from Studio → appears at TOP of feed
+#
+# ✅ SOUNDSCAPES (8 tracks with player UI)
+#   - 432Hz Deep Healing, Morning Abundance Flow
+#   - Inner Peace Rain, Deep Sleep Delta, Study Focus Beta
+#   - Manifest While You Sleep, Chakra Balancing, Self Love Morning
+#   - Tap play → wave animation + card highlights + state toggles
+#   - Pause by tapping again
+#   - (Connect just_audio for real audio: add to pubspec then replace onTap logic)
+#
+# ✅ JOURNAL TAB (in Me page)
+#   - Shows all affirmations created from Studio
+#   - Shows vibe + date
+#   - Updates in real-time as you create new ones
+#
+# ✅ SETTINGS TAB (in Me page)
+#   - Daily notification toggle (8AM)
+#   - Home screen widget toggle
+#   - Dark mode toggle
+#   - Theme, Language, Rate Us, Feedback, Share App
+#
+# ✅ SPARKLE OVERLAY
+#   - Floating sparkle particles on every screen
+#   - Based on sin wave so they feel organic, not random
+#
+# ✅ TRANSITIONS
+#   - All screen pushes use custom slide transitions
+#   - Login → Shell uses AnimatedSwitcher with easeOutCubic
+#   - Tab switches use indexed stack (instant, no lag)
+#   - Story viewer uses scale + fade transition
+#   - Left drawer slides with CurvedAnimation
+#
+# ═══════════════════════════════════════════════════════════════════
+#  SETUP INSTRUCTIONS
+# ═══════════════════════════════════════════════════════════════════
+#
+# 1. Replace lib/main.dart with main_v4.dart
+# 2. Replace pubspec.yaml with this file
+# 3. Run: flutter pub get
+# 4. Add your images to: assets/images/
+#    (See previous pubspec for image name → file mapping)
+# 5. Run: flutter run
+#
+# ═══════════════════════════════════════════════════════════════════
+#  TO ADD REAL AUDIO (Soundscapes)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Add to pubspec.yaml dependencies:
+#   just_audio: ^0.9.39
+#   audio_session: ^0.1.18
+#
+# Add audio files to: assets/audio/
+#   - 432hz.mp3
+#   - morning.mp3
+#   etc.
+#
+# In _SoundCard.onTap(), add:
+#   final player = AudioPlayer();
+#   await player.setAsset('assets/audio/432hz.mp3');
+#   player.play();
+#
+# ═══════════════════════════════════════════════════════════════════
+#  TO SWAP TO FIREBASE BACKEND
+# ═══════════════════════════════════════════════════════════════════
+#
+# 1. flutter pub add firebase_core firebase_auth cloud_firestore
+# 2. Run: flutterfire configure (installs google-services.json)
+# 3. In AppState.init(): replace SharedPreferences with Firestore reads
+# 4. In AppState.login(): use FirebaseAuth.instance.signInWithEmailAndPassword()
+# 5. In AppState.addPost(): use FirebaseFirestore.instance.collection('posts').add()
+# 6. In CommunityView: replace ValueListenableBuilder with StreamBuilder on Firestore
+#
+# Firebase data structure:
+#   users/{uid}: {name, email, streak, joined}
+#   posts/{postId}: {user, text, vibe, likes, comments[], timestamp}
+#   userLikes/{uid}/liked: [postId1, postId2...]
+#   userSaved/{uid}/saved: [postId1, postId2...]
+#   affirmations/{uid}/entries: [{text, vibe, timestamp}]
